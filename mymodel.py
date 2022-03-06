@@ -8,34 +8,15 @@ import torch.nn.functional as F
 # from utils import kl_coef
 
 
-class DistilBertForQuestionAnsweringwithClassification(DistilBertForQuestionAnswering):
-    def __init__(self, config):
-        super().__init__(config)
+class DistilBertForQuestionAnsweringwithClassification(nn.Module):
+    def __init__(self, mystr):
+        super(DistilBertForQuestionAnsweringwithClassification, self).__init__()
 
-        self.distilbertqa = DistilBertForQuestionAnswering(config)
+        self.distilbertqa = DistilBertForQuestionAnswering.from_pretrained(
+            mystr)
 
         # Initialize weights and apply final processing
         # self.post_init()
-
-    def get_position_embeddings(self) -> nn.Embedding:
-        """
-        Returns the position embeddings
-        """
-        return self.distilbertqa.get_position_embeddings()
-
-    def resize_position_embeddings(self, new_num_position_embeddings: int):
-        """
-        Resizes position embeddings of the model if `new_num_position_embeddings != config.max_position_embeddings`.
-        Arguments:
-            new_num_position_embeddings (`int`):
-                The number of new position embedding matrix. If position embeddings are learned, increasing the size
-                will add newly initialized vectors at the end, whereas reducing the size will remove vectors from the
-                end. If position embeddings are not learned (*e.g.* sinusoidal position embeddings), increasing the
-                size will add correct vectors at the end following the position encoding algorithm, whereas reducing
-                the size will remove vectors from the end.
-        """
-        self.distilbertqa.resize_position_embeddings(
-            new_num_position_embeddings)
 
     def forward(
         self,

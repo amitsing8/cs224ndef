@@ -238,7 +238,7 @@ class Trainer():
                                            num_visuals=self.num_visuals)
                         if curr_score['F1'] >= best_scores['F1']:
                             best_scores = curr_score
-                            self.save(model)
+                            self.save(model.distilbertqa)
                     global_idx += 1
         return best_scores
 
@@ -295,7 +295,7 @@ def main():
     model1 = DistilBertForQuestionAnswering.from_pretrained(
         "distilbert-base-uncased")
     model = DistilBertForQuestionAnsweringwithClassification(
-        model1.config)
+        "distilbert-base-uncased")
     tokenizer = DistilBertTokenizerFast.from_pretrained(
         'distilbert-base-uncased')
 
