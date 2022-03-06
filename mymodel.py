@@ -51,7 +51,7 @@ class DistilBertForQuestionAnsweringwithClassification(nn.Module):
         self.distilbertqa = DistilBertForQuestionAnswering.from_pretrained(
             mystr)
         self.config = self.distilbertqa.config
-        self.num_labels = 6  # config.num_labels
+        self.num_classes = num_classes  # config.num_labels
         # self.dropout=nn.Dropout(config.seq_classif_dropout)
         # self.classifier=nn.Linear(config.hidden_size, 6)
         self.dis_lambda = dis_lambda
@@ -140,12 +140,23 @@ class DistilBertForQuestionAnsweringwithClassification(nn.Module):
             return_dict=return_dict,
         )
 
+        hidden = distilbertqa_output[:, 0]
+        log_prob = self.discriminator(hidden)
+        targets = torch.ones_like(log_prob) * (1 / self.num_classes)
+        # As with NLLLoss, the input given is expected to contain log-probabilities
+        # and is not restricted to a 2D Tensor. The targets are given as probabilities
+        kl_criterion = nn.KLDivLoss(reduction="batchmean")
+        if self.anneal:
+            # self.dis_lambda = self.dis_lambda * kl_coef(global_step)
+            self.dis_lambda = self.dis_lambda * kl_coef(22000)
+        kld = self.dis_lambda * kl_criterion(log_prob, targets)
+        total_loss = distilbertqa_output.qa_loss + kld
         # if not return_dict:
         #     output = (distilbertqa_output.start_logits,
         #               distilbertqa_output.end_logits) + distilbertqa_output[1:]
         #     return ((distilbertqa_output.loss,) + output) if total_loss is not None else output
 
-        return distilbertqa_output.loss
+        return total_loss
 
     def forward_discriminator(
         self,
