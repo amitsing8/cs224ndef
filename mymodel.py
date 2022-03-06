@@ -136,12 +136,12 @@ class DistilBertForQuestionAnsweringwithClassification(nn.Module):
             start_positions=start_positions,
             end_positions=end_positions,
             output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
+            output_hidden_states=True,
             return_dict=return_dict,
         )
 
-        hidden = distilbertqa_output[:, 0]
-        log_prob = self.discriminator(hidden)
+        hidden = distilbertqa_output.hidden_states
+        log_prob = self.discriminator(hidden[0][:, 0])
         targets = torch.ones_like(log_prob) * (1 / self.num_classes)
         # As with NLLLoss, the input given is expected to contain log-probabilities
         # and is not restricted to a 2D Tensor. The targets are given as probabilities
@@ -150,7 +150,7 @@ class DistilBertForQuestionAnsweringwithClassification(nn.Module):
             # self.dis_lambda = self.dis_lambda * kl_coef(global_step)
             self.dis_lambda = self.dis_lambda * kl_coef(22000)
         kld = self.dis_lambda * kl_criterion(log_prob, targets)
-        total_loss = distilbertqa_output.qa_loss + kld
+        total_loss = distilbertqa_output.loss + kld
         # if not return_dict:
         #     output = (distilbertqa_output.start_logits,
         #               distilbertqa_output.end_logits) + distilbertqa_output[1:]

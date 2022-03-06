@@ -213,7 +213,7 @@ class Trainer():
                     outputs = model(input_ids, attention_mask=attention_mask,
                                     start_positions=start_positions,
                                     end_positions=end_positions)
-                    loss = outputs[0]
+                    loss = outputs
                     loss.backward()
                     optim.step()
                     progress_bar.update(len(input_ids))
