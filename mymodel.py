@@ -125,6 +125,7 @@ class DistilBertForQuestionAnsweringwithClassification(nn.Module):
         output_attentions=None,
         output_hidden_states=None,
         return_dict=None,
+        labels=None,
     ):
 
         distilbertqa_output = self.distilbertqa(
