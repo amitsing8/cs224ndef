@@ -7,6 +7,7 @@ import csv
 import util
 from transformers import DistilBertTokenizerFast
 from transformers import DistilBertForQuestionAnswering
+from mymodel import DistilBertForQuestionAnsweringwithClassification
 from transformers import AdamW
 from tensorboardX import SummaryWriter
 
@@ -16,6 +17,7 @@ from torch.utils.data.sampler import RandomSampler, SequentialSampler
 from args import get_train_test_args
 
 from tqdm import tqdm
+
 
 def prepare_eval_data(dataset_dict, tokenizer):
     tokenized_examples = tokenizer(dataset_dict['question'],
@@ -47,7 +49,6 @@ def prepare_eval_data(dataset_dict, tokenizer):
         ]
 
     return tokenized_examples
-
 
 
 def prepare_train_data(dataset_dict, tokenizer):
@@ -109,22 +110,22 @@ def prepare_train_data(dataset_dict, tokenizer):
             context = dataset_dict['context'][sample_index]
             offset_st = offsets[tokenized_examples['start_positions'][-1]][0]
             offset_en = offsets[tokenized_examples['end_positions'][-1]][1]
-            if context[offset_st : offset_en] != answer['text'][0]:
+            if context[offset_st: offset_en] != answer['text'][0]:
                 inaccurate += 1
 
     total = len(tokenized_examples['id'])
-    print(f"Preprocessing not completely accurate for {inaccurate}/{total} instances")
+    print(
+        f"Preprocessing not completely accurate for {inaccurate}/{total} instances")
     return tokenized_examples
 
 
-
 def read_and_process(args, tokenizer, dataset_dict, dir_name, dataset_name, split):
-    #TODO: cache this if possible
+    # TODO: cache this if possible
     cache_path = f'{dir_name}/{dataset_name}_encodings.pt'
     if os.path.exists(cache_path) and not args.recompute_features:
         tokenized_examples = util.load_pickle(cache_path)
     else:
-        if split=='train':
+        if split == 'train':
             tokenized_examples = prepare_train_data(dataset_dict, tokenizer)
         else:
             tokenized_examples = prepare_eval_data(dataset_dict, tokenizer)
@@ -132,8 +133,7 @@ def read_and_process(args, tokenizer, dataset_dict, dir_name, dataset_name, spli
     return tokenized_examples
 
 
-
-#TODO: use a logger, use tensorboard
+# TODO: use a logger, use tensorboard
 class Trainer():
     def __init__(self, args, log):
         self.lr = args.lr
@@ -178,8 +178,8 @@ class Trainer():
         start_logits = torch.cat(all_start_logits).cpu().numpy()
         end_logits = torch.cat(all_end_logits).cpu().numpy()
         preds = util.postprocess_qa_predictions(data_dict,
-                                                 data_loader.dataset.encodings,
-                                                 (start_logits, end_logits))
+                                                data_loader.dataset.encodings,
+                                                (start_logits, end_logits))
         if split == 'validation':
             results = util.eval_dicts(data_dict, preds)
             results_list = [('F1', results['F1']),
@@ -221,8 +221,10 @@ class Trainer():
                     tbx.add_scalar('train/NLL', loss.item(), global_idx)
                     if (global_idx % self.eval_every) == 0:
                         self.log.info(f'Evaluating at step {global_idx}...')
-                        preds, curr_score = self.evaluate(model, eval_dataloader, val_dict, return_preds=True)
-                        results_str = ', '.join(f'{k}: {v:05.2f}' for k, v in curr_score.items())
+                        preds, curr_score = self.evaluate(
+                            model, eval_dataloader, val_dict, return_preds=True)
+                        results_str = ', '.join(
+                            f'{k}: {v:05.2f}' for k, v in curr_score.items())
                         self.log.info('Visualizing in TensorBoard...')
                         for k, v in curr_score.items():
                             tbx.add_scalar(f'val/{k}', v, global_idx)
@@ -271,24 +273,31 @@ class Trainer():
                 self.save(model)
         return best_scores
 
+
 def get_dataset(args, datasets, data_dir, tokenizer, split_name):
     datasets = datasets.split(',')
     dataset_dict = None
-    dataset_name=''
+    dataset_name = ''
     for dataset in datasets:
         dataset_name += f'_{dataset}'
         dataset_dict_curr = util.read_squad(f'{data_dir}/{dataset}')
         dataset_dict = util.merge(dataset_dict, dataset_dict_curr)
-    data_encodings = read_and_process(args, tokenizer, dataset_dict, data_dir, dataset_name, split_name)
-    return util.QADataset(data_encodings, train=(split_name=='train')), dataset_dict
+    data_encodings = read_and_process(
+        args, tokenizer, dataset_dict, data_dir, dataset_name, split_name)
+    return util.QADataset(data_encodings, train=(split_name == 'train')), dataset_dict
+
 
 def main():
     # define parser and arguments
     args = get_train_test_args()
 
     util.set_seed(args.seed)
-    model = DistilBertForQuestionAnswering.from_pretrained("distilbert-base-uncased")
-    tokenizer = DistilBertTokenizerFast.from_pretrained('distilbert-base-uncased')
+    model1 = DistilBertForQuestionAnswering.from_pretrained(
+        "distilbert-base-uncased")
+    model = DistilBertForQuestionAnsweringwithClassification(
+        model1.config)
+    tokenizer = DistilBertTokenizerFast.from_pretrained(
+        'distilbert-base-uncased')
 
     if args.do_train:
         if not os.path.exists(args.save_dir):
@@ -297,14 +306,17 @@ def main():
         log = util.get_logger(args.save_dir, 'log_train')
         log.info(f'Args: {json.dumps(vars(args), indent=4, sort_keys=True)}')
         log.info("Preparing Training Data...")
-        args.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+        args.device = torch.device(
+            'cuda') if torch.cuda.is_available() else torch.device('cpu')
         trainer = Trainer(args, log)
-        train_dataset, _ = get_dataset(args, args.train_datasets, args.train_dir, tokenizer, 'train')
+        train_dataset, _ = get_dataset(
+            args, args.train_datasets, args.train_dir, tokenizer, 'train')
         log.info("Preparing Validation Data...")
-        val_dataset, val_dict = get_dataset(args, args.train_datasets, args.val_dir, tokenizer, 'val')
+        val_dataset, val_dict = get_dataset(
+            args, args.train_datasets, args.val_dir, tokenizer, 'val')
         train_loader = DataLoader(train_dataset,
-                                batch_size=args.batch_size,
-                                sampler=RandomSampler(train_dataset))
+                                  batch_size=args.batch_size,
+                                  sampler=RandomSampler(train_dataset))
         val_loader = DataLoader(val_dataset,
                                 batch_size=args.batch_size,
                                 sampler=SequentialSampler(val_dataset))
@@ -316,37 +328,45 @@ def main():
         log = util.get_logger(args.save_dir, 'log_train')
         log.info(f'Args: {json.dumps(vars(args), indent=4, sort_keys=True)}')
         log.info("Preparing Training Data...")
-        args.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+        args.device = torch.device(
+            'cuda') if torch.cuda.is_available() else torch.device('cpu')
         trainer = Trainer(args, log)
-        train_dataset, _ = get_dataset(args, args.eval_datasets, args.train_dir, tokenizer, 'train')
+        train_dataset, _ = get_dataset(
+            args, args.eval_datasets, args.train_dir, tokenizer, 'train')
         log.info("Preparing Validation Data...")
-        val_dataset, val_dict = get_dataset(args, args.train_datasets, args.val_dir, tokenizer, 'val')
+        val_dataset, val_dict = get_dataset(
+            args, args.train_datasets, args.val_dir, tokenizer, 'val')
         train_loader = DataLoader(train_dataset,
-                                batch_size=args.batch_size,
-                                sampler=RandomSampler(train_dataset))
+                                  batch_size=args.batch_size,
+                                  sampler=RandomSampler(train_dataset))
         val_loader = DataLoader(val_dataset,
                                 batch_size=args.batch_size,
                                 sampler=SequentialSampler(val_dataset))
-        best_scores = trainer.tunetrain(model, train_loader, val_loader, val_dict)
+        best_scores = trainer.tunetrain(
+            model, train_loader, val_loader, val_dict)
     if args.do_eval:
-        args.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+        args.device = torch.device(
+            'cuda') if torch.cuda.is_available() else torch.device('cpu')
         split_name = 'test' if 'test' in args.eval_dir else 'validation'
         log = util.get_logger(args.save_dir, f'log_{split_name}')
         trainer = Trainer(args, log)
         checkpoint_path = os.path.join(args.save_dir, 'checkpoint')
         model = DistilBertForQuestionAnswering.from_pretrained(checkpoint_path)
         model.to(args.device)
-        eval_dataset, eval_dict = get_dataset(args, args.eval_datasets, args.eval_dir, tokenizer, split_name)
+        eval_dataset, eval_dict = get_dataset(
+            args, args.eval_datasets, args.eval_dir, tokenizer, split_name)
         eval_loader = DataLoader(eval_dataset,
                                  batch_size=args.batch_size,
                                  sampler=SequentialSampler(eval_dataset))
         eval_preds, eval_scores = trainer.evaluate(model, eval_loader,
                                                    eval_dict, return_preds=True,
                                                    split=split_name)
-        results_str = ', '.join(f'{k}: {v:05.2f}' for k, v in eval_scores.items())
+        results_str = ', '.join(
+            f'{k}: {v:05.2f}' for k, v in eval_scores.items())
         log.info(f'Eval {results_str}')
         # Write submission file
-        sub_path = os.path.join(args.save_dir, split_name + '_' + args.sub_file)
+        sub_path = os.path.join(
+            args.save_dir, split_name + '_' + args.sub_file)
         log.info(f'Writing submission file to {sub_path}...')
         with open(sub_path, 'w', newline='', encoding='utf-8') as csv_fh:
             csv_writer = csv.writer(csv_fh, delimiter=',')
