@@ -18,6 +18,20 @@ from args import get_train_test_args
 
 from tqdm import tqdm
 
+alllabels = {'nat_questions': 0, 'newsqa': 1, 'squad': 2,
+             'duorc': 3, 'race': 4, 'relation_extraction': 5}
+
+indir = 'datasets/indomain_train/'
+id2label = {}
+for file in ['nat_questions', 'newsqa', 'squad']:
+    fr = open(indir+file)
+    dat = fr.read()
+    jdat = json.loads(dat)
+    for i1, entry in enumerate(jdat['data']):
+        for i2, para in enumerate(entry['paragraphs']):
+            for i3, el in enumerate(para['qas']):
+                id2label[el['id']] = alllabels[file]
+
 
 def prepare_eval_data(dataset_dict, tokenizer):
     tokenized_examples = tokenizer(dataset_dict['question'],
@@ -196,6 +210,7 @@ class Trainer():
         device = self.device
         model.to(device)
         optim = AdamW(model.parameters(), lr=self.lr)
+        dis_optim = AdamW(model.discriminator.parameters(), lr=self.lr)
         global_idx = 0
         best_scores = {'F1': -1.0, 'EM': -1.0}
         tbx = SummaryWriter(self.save_dir)
@@ -206,6 +221,7 @@ class Trainer():
                 for batch in train_dataloader:
                     optim.zero_grad()
                     model.train()
+                    labels = [id2label[y] for y in batch['id']]
                     input_ids = batch['input_ids'].to(device)
                     attention_mask = batch['attention_mask'].to(device)
                     start_positions = batch['start_positions'].to(device)
@@ -216,6 +232,16 @@ class Trainer():
                     loss = outputs
                     loss.backward()
                     optim.step()
+
+                    dis_outputs = model(input_ids, attention_mask=attention_mask,
+                                        start_positions=start_positions,
+                                        end_positions=end_positions,
+                                        labels=labels.to(device),
+                                        dtype="qa",)
+                    loss = dis_outputs
+                    loss.backward()
+                    dis_optim.step()
+
                     progress_bar.update(len(input_ids))
                     progress_bar.set_postfix(epoch=epoch_num, NLL=loss.item())
                     tbx.add_scalar('train/NLL', loss.item(), global_idx)
