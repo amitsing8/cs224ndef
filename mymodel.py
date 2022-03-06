@@ -61,7 +61,7 @@ class DistilBertForQuestionAnsweringwithClassification(nn.Module):
         else:
             input_size = self.config.hidden_size
         self.discriminator = DomainDiscriminator(
-            num_classes=num_classes, input_size, self.config.hidden_size, num_layers=num_layers, dropout=self.config.seq_classif_dropout)
+            num_classes=num_classes, input_size=input_size, hidden_size=self.config.hidden_size, num_layers=num_layers, dropout=self.config.seq_classif_dropout)
         # Initialize weights and apply final processing
         # self.post_init()
 
