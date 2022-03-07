@@ -78,6 +78,7 @@ class DistilBertForQuestionAnsweringwithClassification(nn.Module):
         return_dict=None,
         labels=None,
         dtype="qa",
+        global_step=2200,
     ):
 
         if dtype == "qa":
@@ -92,6 +93,7 @@ class DistilBertForQuestionAnsweringwithClassification(nn.Module):
                 output_hidden_states=output_hidden_states,
                 return_dict=return_dict,
                 labels=labels,
+                global_step=global_step,
             )
             return qa_loss
 
@@ -108,6 +110,7 @@ class DistilBertForQuestionAnsweringwithClassification(nn.Module):
                 output_hidden_states=output_hidden_states,
                 return_dict=return_dict,
                 labels=labels,
+                global_step=global_step,
             )
             return dis_loss
 
@@ -126,6 +129,7 @@ class DistilBertForQuestionAnsweringwithClassification(nn.Module):
         output_hidden_states=None,
         return_dict=None,
         labels=None,
+        global_step=None,
     ):
 
         distilbertqa_output = self.distilbertqa(
@@ -147,8 +151,8 @@ class DistilBertForQuestionAnsweringwithClassification(nn.Module):
         # and is not restricted to a 2D Tensor. The targets are given as probabilities
         kl_criterion = nn.KLDivLoss(reduction="batchmean")
         if self.anneal:
-            # self.dis_lambda = self.dis_lambda * kl_coef(global_step)
-            self.dis_lambda = self.dis_lambda * kl_coef(22000)
+            self.dis_lambda = self.dis_lambda * kl_coef(global_step)
+            # self.dis_lambda = self.dis_lambda * kl_coef(22000)
         kld = self.dis_lambda * kl_criterion(log_prob, targets)
         total_loss = distilbertqa_output.loss + kld
         # if not return_dict:
@@ -170,6 +174,7 @@ class DistilBertForQuestionAnsweringwithClassification(nn.Module):
         output_hidden_states=None,
         return_dict=None,
         labels=None,
+        global_step=None,
     ):
         with torch.no_grad():
             sequence_output = self.distilbertqa(

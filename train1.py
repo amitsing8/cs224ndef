@@ -49,12 +49,14 @@ def prepare_eval_data(dataset_dict, tokenizer):
     # For evaluation, we will need to convert our predictions to substrings of the context, so we keep the
     # corresponding example_id and we will store the offset mappings.
     tokenized_examples["id"] = []
+    tokenized_examples["label"] = []
     for i in tqdm(range(len(tokenized_examples["input_ids"]))):
         # Grab the sequence corresponding to that example (to know what is the context and what is the question).
         sequence_ids = tokenized_examples.sequence_ids(i)
         # One example can give several spans, this is the index of the example containing this span of text.
         sample_index = sample_mapping[i]
         tokenized_examples["id"].append(dataset_dict["id"][sample_index])
+        tokenized_examples["label"].append(0)
         # Set to None the offset_mapping that are not part of the context so it's easy to determine if a token
         # position is part of the context or not.
         tokenized_examples["offset_mapping"][i] = [
@@ -81,6 +83,7 @@ def prepare_train_data(dataset_dict, tokenizer):
     tokenized_examples["start_positions"] = []
     tokenized_examples["end_positions"] = []
     tokenized_examples['id'] = []
+    tokenized_examples["label"] = []
     inaccurate = 0
     for i, offsets in enumerate(tqdm(offset_mapping)):
         # We will label impossible answers with the index of the CLS token.
@@ -97,6 +100,8 @@ def prepare_train_data(dataset_dict, tokenizer):
         start_char = answer['answer_start'][0]
         end_char = start_char + len(answer['text'][0])
         tokenized_examples['id'].append(dataset_dict['id'][sample_index])
+        tokenized_examples['label'].append(
+            id2label[dataset_dict['id'][sample_index]])
         # Start token index of the current span in the text.
         token_start_index = 0
         while sequence_ids[token_start_index] != 1:
@@ -221,7 +226,7 @@ class Trainer():
                 for batch in train_dataloader:
                     optim.zero_grad()
                     model.train()
-                    labels = [id2label[y] for y in batch['id']]
+                    labels = batch['label'].to(device)
                     input_ids = batch['input_ids'].to(device)
                     attention_mask = batch['attention_mask'].to(device)
                     start_positions = batch['start_positions'].to(device)
@@ -236,15 +241,18 @@ class Trainer():
                     dis_outputs = model(input_ids, attention_mask=attention_mask,
                                         start_positions=start_positions,
                                         end_positions=end_positions,
-                                        labels=labels.to(device),
-                                        dtype="qa",)
-                    loss = dis_outputs
-                    loss.backward()
+                                        labels=labels,
+                                        dtype="qa",
+                                        global_step=(global_idx+1),)
+                    dis_loss = dis_outputs
+                    dis_loss.backward()
                     dis_optim.step()
 
                     progress_bar.update(len(input_ids))
-                    progress_bar.set_postfix(epoch=epoch_num, NLL=loss.item())
+                    progress_bar.set_postfix(
+                        epoch=epoch_num, NLL=loss.item(), DIS=dis_loss.item())
                     tbx.add_scalar('train/NLL', loss.item(), global_idx)
+                    tbx.add_scalar('train/Disc', dis_loss.item(), global_idx)
                     if (global_idx % self.eval_every) == 0:
                         self.log.info(f'Evaluating at step {global_idx}...')
                         preds, curr_score = self.evaluate(
@@ -300,7 +308,7 @@ class Trainer():
         return best_scores
 
 
-def get_dataset(args, datasets, data_dir, tokenizer, split_name):
+def get_dataset(args, datasets, data_dir, tokenizer, split_name, label=False):
     datasets = datasets.split(',')
     dataset_dict = None
     dataset_name = ''
@@ -310,7 +318,7 @@ def get_dataset(args, datasets, data_dir, tokenizer, split_name):
         dataset_dict = util.merge(dataset_dict, dataset_dict_curr)
     data_encodings = read_and_process(
         args, tokenizer, dataset_dict, data_dir, dataset_name, split_name)
-    return util.QADataset(data_encodings, train=(split_name == 'train')), dataset_dict
+    return util.QADataset(data_encodings, train=(split_name == 'train'), label=label), dataset_dict
 
 
 def main():
@@ -335,8 +343,8 @@ def main():
         args.device = torch.device(
             'cuda') if torch.cuda.is_available() else torch.device('cpu')
         trainer = Trainer(args, log)
-        train_dataset, _ = get_dataset(
-            args, args.train_datasets, args.train_dir, tokenizer, 'train')
+        train_dataset, train_dict = get_dataset(
+            args, args.train_datasets, args.train_dir, tokenizer, 'train', label=True)
         log.info("Preparing Validation Data...")
         val_dataset, val_dict = get_dataset(
             args, args.train_datasets, args.val_dir, tokenizer, 'val')
@@ -357,7 +365,7 @@ def main():
         args.device = torch.device(
             'cuda') if torch.cuda.is_available() else torch.device('cpu')
         trainer = Trainer(args, log)
-        train_dataset, _ = get_dataset(
+        train_dataset, train_dict = get_dataset(
             args, args.eval_datasets, args.train_dir, tokenizer, 'train')
         log.info("Preparing Validation Data...")
         val_dataset, val_dict = get_dataset(
