@@ -217,7 +217,7 @@ class Trainer():
     def train(self, model, train_dataloader, eval_dataloader, val_dict):
         device = self.device
         model.to(device)
-        optim = AdamW(model.parameters(), lr=self.lr)
+        optim = AdamW(model.distilbertqa.parameters(), lr=self.lr)
         dis_optim = AdamW(model.discriminator.parameters(), lr=self.lr)
         global_idx = 0
         best_scores = {'F1': -1.0, 'EM': -1.0}
@@ -276,6 +276,7 @@ class Trainer():
                         if curr_score['F1'] >= best_scores['F1']:
                             best_scores = curr_score
                             self.save(model.distilbertqa)
+                        #self.save(model.distilbertqa)
                     global_idx += 1
         return best_scores
 
@@ -307,7 +308,15 @@ class Trainer():
                     progress_bar.set_postfix(epoch=epoch_num, NLL=loss.item())
                     tbx.add_scalar('train/NLL', loss.item(), global_idx)
                     global_idx += 1
-                self.save(model)
+                preds, curr_score = self.evaluate(
+                        model, eval_dataloader, val_dict, return_preds=True)
+                results_str = ', '.join(
+                        f'{k}: {v:05.2f}' for k, v in curr_score.items())
+                self.log.info(f'Eval {results_str}')
+                if curr_score['F1'] >= best_scores['F1']:
+                    best_scores = curr_score
+                    self.save(model)
+                #self.save(model)
         return best_scores
 
 
