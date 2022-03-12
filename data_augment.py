@@ -151,18 +151,18 @@ def main():
                 answerIndices = []
                 for i3, el in enumerate(para['qas']):
                     if mode == "qas_translate":
+                    for lang in langList:
                         newq = {}
-                        for lang in langList:
-                            newq['question'] = translate(el['question'], lang)
-                            newq['answers'] = el['answers']
-                            newq['id'] = el['id']
-                        jdat2['data'][i1]['paragraphs'][i2]['qas'].append(newq)
+                        newq['question'] = translate(el['question'], lang)
+                        newq['answers'] = el['answers']
+                        newq['id'] = el['id'] + lang
+                    jdat2['data'][i1]['paragraphs'][i2]['qas'].append(newq)
                     else:
-                        for answer in el['answers']:
-                            answerIndices.append(answer['answer_start'])
-                            answerIndicesSet.update(list(range
-                                                         (answer['answer_start'],
-                                                          answer['answer_start']+len(answer['text']))))
+                    for answer in el['answers']:
+                        answerIndices.append(answer['answer_start'])
+                        answerIndicesSet.update(list(range
+                                                     (answer['answer_start'],
+                                                      answer['answer_start']+len(answer['text']))))
 
                 answerIndicesList = sorted(answerIndicesSet)
                 # ctx_tuples, ans_tuples=getTuples(
@@ -170,12 +170,13 @@ def main():
 
                 answerIndices = sorted(set(answerIndices))
                 if mode == "ctx_translate":
-                    newc = {}
                     for lang in langList:
+                        newc = {}
                         xltpara = translate_non_answers(
                             para['context'], answerIndicesList, lang)
                         newqas = copy.deepcopy(para['qas'])
                         for el in newqas:
+                            el["id"] = el["id"]+lang
                             for ans in el["answers"]:
                                 ans["answer_start"] = xltpara.index(
                                     ans["text"])
