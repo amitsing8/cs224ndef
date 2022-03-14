@@ -1,3 +1,4 @@
+#import pdb
 import argparse
 import json
 import os
@@ -24,6 +25,26 @@ alllabels = {'nat_questions': 0, 'newsqa': 1, 'squad': 2,
 indir = 'datasets/indomain_train/'
 id2label = {}
 for file in ['nat_questions', 'newsqa', 'squad']:
+    fr = open(indir+file)
+    dat = fr.read()
+    jdat = json.loads(dat)
+    for i1, entry in enumerate(jdat['data']):
+        for i2, para in enumerate(entry['paragraphs']):
+            for i3, el in enumerate(para['qas']):
+                id2label[el['id']] = alllabels[file]
+
+indir = 'datasets/indomain_val/'
+for file in ['nat_questions', 'newsqa', 'squad']:
+    fr = open(indir+file)
+    dat = fr.read()
+    jdat = json.loads(dat)
+    for i1, entry in enumerate(jdat['data']):
+        for i2, para in enumerate(entry['paragraphs']):
+            for i3, el in enumerate(para['qas']):
+                id2label[el['id']] = alllabels[file]
+
+indir = 'datasets/oodomain_train/'
+for file in ['race', 'relation_extraction', 'duorc']:
     fr = open(indir+file)
     dat = fr.read()
     jdat = json.loads(dat)
@@ -280,6 +301,58 @@ class Trainer():
                     global_idx += 1
         return best_scores
 
+    def advtrain(self, model, train_dataloader, eval_dataloader, val_dict):
+        device = self.device
+        model.to(device)
+        optim = AdamW(model.distilbertqa.parameters(), lr=self.lr)
+        dis_optim = AdamW(model.discriminator.parameters(), lr=self.lr)
+        global_idx = 0
+        best_scores = {'F1': -1.0, 'EM': -1.0}
+        tbx = SummaryWriter(self.save_dir)
+
+        for epoch_num in range(self.num_epochs):
+            self.log.info(f'Epoch: {epoch_num}')
+            with torch.enable_grad(), tqdm(total=len(train_dataloader.dataset)) as progress_bar:
+                for batch in train_dataloader:
+                    optim.zero_grad()
+                    model.train()
+                    labels = batch['label'].to(device)
+                    input_ids = batch['input_ids'].to(device)
+                    attention_mask = batch['attention_mask'].to(device)
+                    start_positions = batch['start_positions'].to(device)
+                    end_positions = batch['end_positions'].to(device)
+                    outputs = model(input_ids, attention_mask=attention_mask,
+                                    start_positions=start_positions,
+                                    end_positions=end_positions)
+                    loss = outputs
+                    loss.backward()
+                    optim.step()
+
+                    dis_outputs = model(input_ids, attention_mask=attention_mask,
+                                        start_positions=start_positions,
+                                        end_positions=end_positions,
+                                        labels=labels,
+                                        dtype="qa",
+                                        global_step=(global_idx+1),)
+                    dis_loss = dis_outputs
+                    dis_loss.backward()
+                    dis_optim.step()
+
+                    progress_bar.update(len(input_ids))
+                    progress_bar.set_postfix(
+                        epoch=epoch_num, NLL=loss.item(), DIS=dis_loss.item())
+                    tbx.add_scalar('train/NLL', loss.item(), global_idx)
+                    tbx.add_scalar('train/Disc', dis_loss.item(), global_idx)
+                    global_idx += 1
+                preds, curr_score = self.evaluate(
+                        model.distilbertqa, eval_dataloader, val_dict, return_preds=True)
+                results_str = ', '.join(
+                        f'{k}: {v:05.2f}' for k, v in curr_score.items())
+                self.log.info(f'Eval {results_str}')
+                if curr_score['F1'] >= best_scores['F1']:
+                    best_scores = curr_score
+                    self.save(model.distilbertqa)
+        return best_scores
     def tunetrain(self, model, train_dataloader, eval_dataloader, val_dict):
         device = self.device
         model.to(device)
@@ -330,6 +403,7 @@ def get_dataset(args, datasets, data_dir, tokenizer, split_name, label=False):
         dataset_dict = util.merge(dataset_dict, dataset_dict_curr)
     data_encodings = read_and_process(
         args, tokenizer, dataset_dict, data_dir, dataset_name, split_name)
+    #pdb.set_trace()
     return util.QADataset(data_encodings, train=(split_name == 'train'), label=label), dataset_dict
 
 
@@ -346,9 +420,14 @@ def main():
         'distilbert-base-uncased')
 
     if args.do_train:
-        if not os.path.exists(args.save_dir):
-            os.makedirs(args.save_dir)
-        args.save_dir = util.get_save_dir(args.save_dir, args.run_name)
+        if args.load_saved:
+             assert os.path.exists(args.save_dir)
+             checkpoint_path = os.path.join(args.save_dir, 'checkpoint')
+             model = DistilBertForQuestionAnsweringwithClassification(checkpoint_path)
+        else:
+            if not os.path.exists(args.save_dir):
+                os.makedirs(args.save_dir)
+            args.save_dir = util.get_save_dir(args.save_dir, args.run_name)
         log = util.get_logger(args.save_dir, 'log_train')
         log.info(f'Args: {json.dumps(vars(args), indent=4, sort_keys=True)}')
         log.info("Preparing Training Data...")
@@ -358,15 +437,22 @@ def main():
         train_dataset, train_dict = get_dataset(
             args, args.train_datasets, args.train_dir, tokenizer, 'train', label=True)
         log.info("Preparing Validation Data...")
-        val_dataset, val_dict = get_dataset(
-            args, args.train_datasets, args.val_dir, tokenizer, 'val')
+        if args.load_saved:
+            val_dataset, val_dict = get_dataset(
+                args, args.eval_datasets, args.eval_dir, tokenizer, 'val')
+        else:
+            val_dataset, val_dict = get_dataset(
+                args, args.train_datasets, args.val_dir, tokenizer, 'val')
         train_loader = DataLoader(train_dataset,
                                   batch_size=args.batch_size,
                                   sampler=RandomSampler(train_dataset))
         val_loader = DataLoader(val_dataset,
                                 batch_size=args.batch_size,
                                 sampler=SequentialSampler(val_dataset))
-        best_scores = trainer.train(model, train_loader, val_loader, val_dict)
+        if args.load_saved:
+            best_scores = trainer.advtrain(model, train_loader, val_loader, val_dict)
+        else:
+            best_scores = trainer.train(model, train_loader, val_loader, val_dict)
     if args.do_finetune:
         assert os.path.exists(args.save_dir)
         checkpoint_path = os.path.join(args.save_dir, 'checkpoint')
