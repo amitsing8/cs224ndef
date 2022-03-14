@@ -45,7 +45,7 @@ class DomainDiscriminator(nn.Module):
 
 class DistilBertForQuestionAnsweringwithClassification(nn.Module):
     def __init__(self, mystr, num_classes=6,
-                 num_layers=3, dis_lambda=0.5, concat=False, anneal=False):
+                 num_layers=3, dis_lambda=0.01, concat=False, anneal=False):
         super(DistilBertForQuestionAnsweringwithClassification, self).__init__()
 
         self.distilbertqa = DistilBertForQuestionAnswering.from_pretrained(
